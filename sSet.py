@@ -10,11 +10,11 @@ Description
 Functions
 ---------
     sset_to_ch(sset_in)
-        Converts a simplicial set to the corresponding chain complex over Z_2.
+        Converts a simplicial set to the corresponding chain complex over Z_p.
     sset_to_sh(sset_h)
         Converts SimplicialSetWithHeight sset_h to BisimplicialSet s_h (the section complex).
     reeb_complex(sset_h, dim, num_lvls)
-        Compute the boundary facemaps of the dim-th Reeb complex (with Z_2-coefficients) of sections traversing num_lvls heights given a SimplicialSetWithHeight
+        Compute the boundary facemaps of the dim-th Reeb complex (with Z_p-coefficients) of sections traversing num_lvls heights given a SimplicialSetWithHeight
 Classes 
 -------
     Simplex
@@ -185,8 +185,8 @@ class ChainComplex:
     -------
     is_chain_complex()
         Checks if boundary matrices compose to zero
-    homology(n)
-        Computes the generators of the nth homology of a chain complex with Z_2-coefficients in terms of basis vectors for ker(boundary[n-1])/im(boundary[n]). 
+    homology(n, p)
+        Computes the generators of the nth homology of a chain complex with Z_p-coefficients in terms of basis vectors for ker(boundary[n-1])/im(boundary[n]). 
     """    
     def __init__(self, boundary=[], zero = 0):
         """
@@ -223,9 +223,9 @@ class ChainComplex:
                 return False
         return True
 
-    def homology(self, n):        
+    def homology(self, n, p = 2):        
         """
-        Computes the generators of the nth homology with Z_2-coefficients of a chain complex in terms of basis vectors for ker(boundary[n-1])/im(boundary[n]). 
+        Computes the generators of the nth homology with Z_p-coefficients of a chain complex in terms of basis vectors for ker(boundary[n-1])/im(boundary[n]). 
         Additionally provides a basis for the boundaries, used to determine the homology class in reeb_complex()
         
         First, go through the possible cases of n and find the image and kernel of the nth and n-1th boundary matrices. 
@@ -242,7 +242,9 @@ class ChainComplex:
         -----------
         n : int
             dimension
-            
+        p : int
+            prime number 
+
         Returns
         -----------
         list         
@@ -256,58 +258,56 @@ class ChainComplex:
             im = []
         elif n == 0:
             if len(self.boundary) == 0:
-                ker = np.identity(self.zero)
                 im = []
+                ker = np.identity(self.zero, dtype = int)
             else:
-                ker = np.identity(len(self.boundary[n][:, 0])) 
                 im = np.transpose(self.boundary[n])  
+                ker = np.identity(len(self.boundary[n][:, 0]), dtype = int) 
         elif n == len(self.boundary):
-            ker = np.array(sympy.Matrix(self.boundary[n - 1]).nullspace(iszerofunc=lambda x: x % 2==0), dtype = int)
-            if len(ker)>0: ker = ker[:,:,0]
-
             im = []  
+            ker = np.array(sympy.Matrix(self.boundary[n - 1]).nullspace(iszerofunc=lambda x: x % p==0), dtype = int)
+            if len(ker)>0: ker = ker[:,:,0]
         else:
             im = np.transpose(self.boundary[n])
-            ker = np.array(sympy.Matrix(self.boundary[n - 1]).nullspace(iszerofunc=lambda x: x % 2==0), dtype = int)
+            ker = np.array(sympy.Matrix(self.boundary[n - 1]).nullspace(iszerofunc=lambda x: x % p==0), dtype = int)
             if len(ker)>0: ker = ker[:,:,0]
         im_ker = []  
-        im = np.round(im,1)
-        ker = np.round(ker,1) 
         for u in im:  
             im_ker.append(u)
         for v in ker:
             im_ker.append(v)
-        pivot_indices = sympy.Matrix(np.transpose(im_ker)).rref(iszerofunc=lambda x: x % 2==0)[1]
+        pivot_indices = sympy.Matrix(np.transpose(im_ker)).rref(iszerofunc=lambda x: x % p==0)[1]
         im_basis = []
         hom_basis = []
         for i in range(len(pivot_indices)):
             index = pivot_indices[i]
             index_ker = index - len(im)
             if index_ker >= 0:
-                hom = ker[index_ker] / np.min(np.absolute(ker[index_ker])[np.nonzero(ker[index_ker])])
-                hom = np.mod(np.rint(hom),2) 
+                hom = ker[index_ker] 
+                hom = np.mod(hom,p) 
                 hom_basis.append(hom)
             else: 
-                bas = im[index] / np.min(np.absolute(im[index])[np.nonzero(im[index])])
-                bas = np.mod(np.rint(bas),2)
+                bas = im[index] 
+                bas = np.mod(bas,p)
                 im_basis.append(bas)
         return [hom_basis, im_basis]         
 
-def sset_to_ch(sset_in): 
+def sset_to_ch(sset_in, p = 2): 
     """
-    Converts a simplicial set to its assoicated chain complex over Z_2.
+    Converts a simplicial set to its assoicated chain complex over Z_p (using the congruence classes closest to zero in boundary maps).
     Makes a list [d0, d1,... ,dn] of boundary matrices and gives this as input to the ChainComplex class
     
     Iterate through lists of i-simplices in sset_in
     Initialize boundary maps, bound_i, from (i+1)-simplices, sset_1, to i-simplices, sset_0 of size |sset_0|x|sset_1|
     Iterate through all (i+1)-simplices s_1 and its faces s_0
     s_1 is the j-th simplex and s_0 the k-th face of s_1, so we update bound_i with a (-1)^k in correct entry
-    Note: Z_2-coefficients are assumed in current implementation
-
+    
     Parameters
     ----------
     sset_in : SimplicialSet
         Input simplicial set
+    p : int
+        prime number
 
     Returns
     -------
@@ -327,7 +327,9 @@ def sset_to_ch(sset_in):
             for j, s_1 in enumerate(sset_1):  
                 for k, s_0 in enumerate(s_1.faces):  
                     bound_i[sset_0.index(s_0)][j] += (-1)**k  
-            bound_i = np.mod(np.rint(bound_i),2)
+            bound_i = np.mod(bound_i, p)
+            coeff = (p-bound_i)<bound_i
+            bound_i[coeff] =  bound_i[coeff] - p
             bound_mat.append(bound_i)
         return ChainComplex(boundary=bound_mat)  
 
@@ -797,7 +799,7 @@ def sset_to_sh(sset_h):
             s_h.add_bisimplex(bs)
     return [s_h, simplex_to_bisimplex]
 
-def homology_vector_space(homology_basis, boundaries):
+def homology_vector_space(homology_basis, boundaries, p = 2):
     """
     Computes all vector representatives in homology vector space 
 
@@ -815,6 +817,7 @@ def homology_vector_space(homology_basis, boundaries):
     list
         indices corresponding to basis vectors 
     """
+       
     homology_reps, homology_inds = [], []
     cycles = np.array([v for v in homology_basis])
     boundaries = np.array([v for v in boundaries])
@@ -826,24 +829,41 @@ def homology_vector_space(homology_basis, boundaries):
             for comb in combs:
                 homology_inds.append(comb)
                 homology_comb = np.sum(cycles[comb,:],0)
-                homology_comb = np.mod(np.rint(homology_comb),2)
+                homology_comb = np.mod(homology_comb,p)
                 homology_reps.append(homology_comb)        
-
+                for c in comb:
+                    for i in np.arange(1,p-1):
+                        comb1 = np.concatenate((np.repeat([c], i),comb))
+                        homology_inds.append(comb)
+                        homology_comb = np.sum(cycles[comb1,:],0)
+                        homology_comb = np.mod(homology_comb,p)
+                        homology_reps.append(homology_comb)        
+    cycle_reps = homology_reps.copy()
+    cycle_inds = homology_inds.copy()
     if np.sum(np.shape(boundaries))>0: 
         if boundaries.ndim == 1:
             boundaries = boundaries[np.newaxis, :]
-        for ind_hom, homology_rep in enumerate(homology_basis):            
+        for ind_hom, homology_rep in enumerate(cycle_reps):            
             for num_bound in np.arange(1, len(boundaries[:,0])+1):
                 combs = combinations(range(len(boundaries[:,0])), num_bound) 
                 for comb in combs:
-                    homology_inds.append(ind_hom)
+                    homology_inds.append(cycle_inds[ind_hom])
                     homology_comb = homology_rep + np.sum(boundaries[comb,:],0)
-                    homology_comb = np.mod(np.rint(homology_comb),2)
+                    homology_comb = np.mod(homology_comb,p)
                     homology_reps.append(homology_comb)
+                    for c in comb:
+                        for i in np.arange(1,p-1):
+                            comb1 = np.concatenate((np.repeat([c], i),comb))
+                            homology_inds.append(cycle_inds[ind_hom])
+                            homology_comb = homology_rep + np.sum(boundaries[comb1,:],0)
+                            homology_comb = np.mod(homology_comb,p)
+                            homology_reps.append(homology_comb)
+
+    #homology_reps.append([0]*len())
     return homology_reps, homology_inds
 
 def reeb_facemap(homology_l0, homology_l1, bisimplex_to_simplex_l0, bisimplex_to_simplex_l1,
-    simplex_dim_l0, simplex_dim_l1, homology_reps_l0, homology_inds_l0, lvl):
+    simplex_dim_l0, simplex_dim_l1, homology_reps_l0, homology_inds_l0, lvl, p = 2):
     """
     Auxiliary function for reeb_complex()
     Compute lvl+1 facemaps between homology representatives going between heights lvl and lvl-1 in reeb complex 
@@ -870,6 +890,8 @@ def reeb_facemap(homology_l0, homology_l1, bisimplex_to_simplex_l0, bisimplex_to
         basis vector indices corresponding to vector space representatives 
     lvl : int
         number heights
+    p : int
+        prime number
 
     Returns
     ----------
@@ -881,17 +903,16 @@ def reeb_facemap(homology_l0, homology_l1, bisimplex_to_simplex_l0, bisimplex_to
     simplex_l1 = list(bisimplex_to_simplex_l1.values())
     fmap_reeb = []    
     for ind_face in range(lvl+1): 
-        fmap_lvl = np.zeros([len(simplex_dim_l0), len(simplex_dim_l1)])
+        fmap_lvl = np.zeros([len(simplex_dim_l0), len(simplex_dim_l1)], dtype = int)
         for ind_l1 in range(len(simplex_dim_l1)): 
             ind_s_l1 = simplex_l1.index(simplex_dim_l1[ind_l1])
             bs_l1 = bisimplex_l1[ind_s_l1].horizontal_face(ind_face)
             if isinstance(bs_l1, Bisimplex): 
                 ind_l0 = simplex_dim_l0.index(bisimplex_to_simplex_l0[bs_l1])
                 fmap_lvl[ind_l0][ind_l1] = 1      
-
-        fmap_hom_lvl = np.zeros([len(homology_l0), len(homology_l1)])   
+        fmap_hom_lvl = np.zeros([len(homology_l0), len(homology_l1)], dtype = int)   
         fmap_hom_temp = np.matmul(fmap_lvl, np.transpose(homology_reps_l1)).T
-        fmap_hom_temp = np.mod(np.rint(fmap_hom_temp),2) 
+        fmap_hom_temp = np.mod(fmap_hom_temp, p) 
         for i, fmap_basis_l1 in enumerate(fmap_hom_temp):
             for j, hom_basis_l0 in enumerate(homology_reps_l0):
                 if np.sum(np.abs(fmap_basis_l1-hom_basis_l0)) == 0: 
@@ -899,9 +920,9 @@ def reeb_facemap(homology_l0, homology_l1, bisimplex_to_simplex_l0, bisimplex_to
         fmap_reeb.append(fmap_hom_lvl)
     return fmap_reeb
 
-def reeb_complex(sset_h, dim, num_lvls):
+def reeb_complex(sset_h, dim, num_lvls, p = 2):
     """
-    Compute the boundary facemaps of the dim-th Reeb complex (with Z_2-coefficients) of sections traversing num_lvls heights given a SimplicialSetWithHeight 
+    Compute the boundary facemaps of the dim-th Reeb complex (with Z_p-coefficients) of sections traversing num_lvls heights given a SimplicialSetWithHeight 
     Note: degenerate faces are omitted but they are irrelevant in homology anyways
     1. Translate sset_h to bisimplicial set s_h. 
     2. For each number of height levels, obtain horizontal simplicial sets going between lvl and lvl-1 heights (sset_l1 and sset_l0).
@@ -916,7 +937,9 @@ def reeb_complex(sset_h, dim, num_lvls):
     dim : int
         homology dimension
     num_lvls : int
-        number of height levels  
+        number of height levels 
+    p : int
+        prime number 
     
     Returns
     ----------
@@ -926,15 +949,16 @@ def reeb_complex(sset_h, dim, num_lvls):
     facemaps = []     
     s_h = sset_to_sh(sset_h)[0] 
     sset_l0, bisimplex_to_simplex_l0 = s_h.horizontal_simplicial_set(0)
-    homology_l0, boundaries_l0 = sset_to_ch(sset_l0).homology(dim)
+    homology_l0, boundaries_l0 = sset_to_ch(sset_l0, p).homology(dim, p)
     simplex_dim_l0 = sset_l0.simplexes[dim]
     for lvl in range(1, num_lvls+1):         
         sset_l1, bisimplex_to_simplex_l1  = s_h.horizontal_simplicial_set(lvl)
-        homology_l1, boundaries_l1 = sset_to_ch(sset_l1).homology(dim)
+        homology_l1, boundaries_l1 = sset_to_ch(sset_l1, p).homology(dim, p)
         simplex_dim_l1 = sset_l1.simplexes[dim]
-        homology_reps_l0, homology_inds_l0 = homology_vector_space(homology_l0, boundaries_l0)
+        homology_reps_l0, homology_inds_l0 = homology_vector_space(homology_l0, boundaries_l0, p)
         facemaps.append(reeb_facemap(homology_l0, homology_l1, bisimplex_to_simplex_l0, bisimplex_to_simplex_l1,
-            simplex_dim_l0, simplex_dim_l1, homology_reps_l0, homology_inds_l0, lvl))
+            simplex_dim_l0, simplex_dim_l1, homology_reps_l0, homology_inds_l0, lvl, p))
+
         sset_l0, bisimplex_to_simplex_l0, homology_l0, boundaries_l0, simplex_dim_l0 = (sset_l1, bisimplex_to_simplex_l1, 
             homology_l1, boundaries_l1, simplex_dim_l1)
     return facemaps
